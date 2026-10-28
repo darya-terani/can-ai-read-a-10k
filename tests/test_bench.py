@@ -174,3 +174,22 @@ def test_model_prefix_routes_to_provider():
 
     extract("ctx", "Co", "2025-12-31", "ollama:llama3.1:8b", client=post)
     assert calls == ["llama3.1:8b"]
+
+
+def test_gemini_retries_when_servers_are_busy(monkeypatch):
+    from google.genai import errors
+
+    import tenkbench.providers as prov
+
+    monkeypatch.setattr(prov.time, "sleep", lambda s: None)
+    calls = {"n": 0}
+
+    def generate_content(model, contents, config):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise errors.ServerError(503, {"error": {"code": 503, "message": "high demand", "status": "UNAVAILABLE"}})
+        return SimpleNamespace(text='{"revenue": 1}', usage_metadata=SimpleNamespace(prompt_token_count=1, candidates_token_count=1))
+
+    fake = SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+    ex = prov.extract_gemini("prompt", "gemini-test", client=fake)
+    assert calls["n"] == 2 and ex.values["revenue"] == 1

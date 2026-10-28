@@ -43,9 +43,14 @@ def extract_gemini(prompt: str, model: str, client=None) -> Extraction:
         try:
             response = client.models.generate_content(model=model, contents=prompt, config=config)
             break
-        except errors.ClientError as err:
-            if getattr(err, "code", None) == 429 and attempt < MAX_RETRIES - 1:
-                time.sleep(30 * (attempt + 1))   # rate limited: wait and retry
+        except (errors.ClientError, errors.ServerError) as err:
+            # 429 = rate limited; 500/503 = Google's servers temporarily overloaded.
+            # Both are temporary: wait longer each time and try again.
+            temporary = getattr(err, "code", None) in (429, 500, 503)
+            if temporary and attempt < MAX_RETRIES - 1:
+                wait = 30 * (attempt + 1)
+                print(f"  Gemini busy (error {err.code}); retrying in {wait}s...")
+                time.sleep(wait)
                 continue
             raise
     time.sleep(GEMINI_PAUSE_SECONDS)
