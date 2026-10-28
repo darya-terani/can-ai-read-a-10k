@@ -26,7 +26,7 @@ RESULTS = Path("results")
 def run_model(model: str, client=None) -> list[dict]:
     """One row per (company, metric): the answer, its label, and the guardrail flag."""
     companies = json.loads((DATA / "companies.json").read_text())
-    raw_dir = RESULTS / "raw" / model
+    raw_dir = RESULTS / "raw" / model.replace(":", "_").replace("/", "_")   # safe folder name on every OS
     raw_dir.mkdir(parents=True, exist_ok=True)
     rows = []
     for c in companies:
@@ -91,4 +91,6 @@ def main(models: list[str]) -> None:
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:] or ["claude-haiku-5-5"])
+    if len(sys.argv) < 2:
+        sys.exit("Name at least one model, e.g. python -m tenkbench.run gemini:<model> ollama:qwen2.5:7b")
+    main(sys.argv[1:])

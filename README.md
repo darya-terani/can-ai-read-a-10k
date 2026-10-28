@@ -51,13 +51,22 @@ When banks and funds use AI models to pull figures out of financial reports, how
 
 ## Run it
 
+Models are chosen by name prefix, and two options cost nothing:
+
+| Provider | Model name to pass | Cost | Setup |
+| --- | --- | --- | --- |
+| Google Gemini | `gemini:<model>` | Free tier | Key from [Google AI Studio](https://aistudio.google.com), then `export GEMINI_API_KEY=...` |
+| Local, via Ollama | `ollama:<model>` | Free, runs on your computer | Install [Ollama](https://ollama.com), then `ollama pull qwen2.5:7b` |
+| Anthropic Claude | e.g. `claude-haiku-5-5` | Paid API | `export ANTHROPIC_API_KEY=...` |
+
 ```bash
 pip install -r requirements.txt
-python -m tenkbench.dataset                 # downloads 10-Ks and ground truth from SEC EDGAR
-export ANTHROPIC_API_KEY=your-key
-python -m tenkbench.run claude-haiku-5-5 claude-sonnet-5-5
-pytest                                      # 16 tests; uses a fake model, no API key needed
+python -m tenkbench.dataset                          # downloads 10-Ks and ground truth from SEC EDGAR
+python -m tenkbench.run gemini:<model> ollama:qwen2.5:7b
+pytest                                               # 19 tests; fake models, no keys needed
 ```
+
+The Gemini run pauses a few seconds between requests to stay inside free-tier rate limits.
 
 Answers are cached per company in `results/raw/`, so a re-run only calls the API for what's missing.
 
@@ -68,7 +77,8 @@ tenkbench/
   dataset.py    companies, 10-K download, XBRL ground truth
   numbers.py    how values are printed (millions, thousands, decimals, parentheses)
   retrieve.py   statement-page retrieval
-  extract.py    structured model extraction
+  extract.py    structured model extraction (Anthropic) and provider routing
+  providers.py  free providers: Gemini free tier and local models via Ollama
   score.py      grading, error taxonomy, bootstrap CI
   guardrail.py  verify-in-source check
   run.py        runs models, writes results/

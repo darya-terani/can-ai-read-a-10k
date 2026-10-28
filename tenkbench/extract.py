@@ -42,7 +42,8 @@ TOOL = {
     "description": "Report the requested figures from the 10-K.",
     "input_schema": {
         "type": "object",
-        "properties": {m: {"type": ["number", "null"], "description": d} for m, d in DESCRIPTIONS.items()},
+        # anyOf (rather than a type list) is the form Anthropic, Gemini and Ollama all accept.
+        "properties": {m: {"anyOf": [{"type": "number"}, {"type": "null"}], "description": d} for m, d in DESCRIPTIONS.items()},
         "required": list(METRICS),
     },
 }
@@ -56,15 +57,44 @@ class Extraction:
     seconds: float
 
 
+def build_prompt(context: str, company: str, period_end: str) -> str:
+    return (
+        f"Company: {company}\nFiscal year ending: {period_end}\n\n"
+        f"Excerpts from the 10-K:\n<report>\n{context}\n</report>"
+    )
+
+
+def clean_values(raw: dict) -> dict[str, float | None]:
+    """Keep only the requested metrics; accept numbers sent as strings ("1,234")."""
+    out = {}
+    for m in METRICS:
+        v = raw.get(m)
+        if isinstance(v, str):
+            try:
+                v = float(v.replace(",", "").replace("$", ""))
+            except ValueError:
+                v = None
+        out[m] = v if isinstance(v, (int, float)) else None
+    return out
+
+
 def extract(context: str, company: str, period_end: str, model: str, client=None) -> Extraction:
+    """Route to the right provider by the model name's prefix:
+    "gemini:<model>" (Google), "ollama:<model>" (local), anything else (Anthropic)."""
+    prompt = build_prompt(context, company, period_end)
+    if model.startswith("gemini:"):
+        from .providers import extract_gemini
+
+        return extract_gemini(prompt, model.split(":", 1)[1], client=client)
+    if model.startswith("ollama:"):
+        from .providers import extract_ollama
+
+        return extract_ollama(prompt, model.split(":", 1)[1], post=client)
+
     if client is None:
         import anthropic
 
         client = anthropic.Anthropic()
-    prompt = (
-        f"Company: {company}\nFiscal year ending: {period_end}\n\n"
-        f"Excerpts from the 10-K:\n<report>\n{context}\n</report>"
-    )
     start = time.time()
     response = client.messages.create(
         model=model,
@@ -76,5 +106,4 @@ def extract(context: str, company: str, period_end: str, model: str, client=None
         messages=[{"role": "user", "content": prompt}],
     )
     block = next(b for b in response.content if b.type == "tool_use")
-    values = {m: block.input.get(m) for m in METRICS}
-    return Extraction(values, response.usage.input_tokens, response.usage.output_tokens, time.time() - start)
+    return Extraction(clean_values(block.input), response.usage.input_tokens, response.usage.output_tokens, time.time() - start)

@@ -120,3 +120,57 @@ def test_end_to_end(tmp_path, monkeypatch):
     assert s["accuracy"] == pytest.approx(1 / 3)
     assert s["guardrail_catches"] == pytest.approx(0.5)   # catches the unit error; "missing" isn't flagged
     assert s["guardrail_false_flags"] == 0
+
+
+# ---- free providers, with fakes (no keys or local install needed) ---------------
+
+def test_gemini_adapter_parses_json_and_usage():
+    from tenkbench.providers import extract_gemini
+    import tenkbench.providers as prov
+
+    prov.GEMINI_PAUSE_SECONDS = 0
+    captured = {}
+
+    def generate_content(model, contents, config):
+        captured.update(model=model, config=config)
+        return SimpleNamespace(
+            text='{"revenue": 416161000000, "net_income": "112,010,000,000", "cash": null}',
+            usage_metadata=SimpleNamespace(prompt_token_count=900, candidates_token_count=40, thoughts_token_count=10),
+        )
+
+    fake = SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+    ex = extract_gemini("prompt", "gemini-test", client=fake)
+    assert ex.values["revenue"] == 416_161_000_000
+    assert ex.values["net_income"] == 112_010_000_000          # string with commas accepted
+    assert ex.values["cash"] is None and ex.values["total_assets"] is None
+    assert (ex.input_tokens, ex.output_tokens) == (900, 50)
+    assert captured["config"].temperature == 0 and captured["config"].response_json_schema is not None
+
+
+def test_ollama_adapter_sends_schema_and_large_context():
+    from tenkbench.providers import extract_ollama
+
+    sent = {}
+
+    def post(url, payload):
+        sent.update(url=url, payload=payload)
+        return {"message": {"content": '{"eps_diluted": 7.46}'}, "prompt_eval_count": 1200, "eval_count": 30}
+
+    ex = extract_ollama("prompt", "qwen2.5:7b", post=post, host="http://localhost:11434")
+    assert ex.values["eps_diluted"] == 7.46
+    assert sent["url"].endswith("/api/chat")
+    assert sent["payload"]["options"]["num_ctx"] >= 32768      # default context would truncate the report
+    assert sent["payload"]["format"]["properties"]["revenue"]["anyOf"]
+
+
+def test_model_prefix_routes_to_provider():
+    from tenkbench.extract import extract
+
+    calls = []
+
+    def post(url, payload):
+        calls.append(payload["model"])
+        return {"message": {"content": "{}"}}
+
+    extract("ctx", "Co", "2025-12-31", "ollama:llama3.1:8b", client=post)
+    assert calls == ["llama3.1:8b"]
