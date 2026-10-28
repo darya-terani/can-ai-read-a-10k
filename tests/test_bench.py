@@ -193,3 +193,22 @@ def test_gemini_retries_when_servers_are_busy(monkeypatch):
     fake = SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
     ex = prov.extract_gemini("prompt", "gemini-test", client=fake)
     assert calls["n"] == 2 and ex.values["revenue"] == 1
+
+
+def test_gemini_stops_cleanly_on_daily_quota(monkeypatch):
+    from google.genai import errors
+
+    import tenkbench.providers as prov
+
+    monkeypatch.setattr(prov.time, "sleep", lambda s: None)
+    calls = {"n": 0}
+
+    def generate_content(model, contents, config):
+        calls["n"] += 1
+        raise errors.ClientError(429, {"error": {"code": 429, "status": "RESOURCE_EXHAUSTED",
+            "message": "quotaId: GenerateRequestsPerDayPerProjectPerModel-FreeTier"}})
+
+    fake = SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+    with pytest.raises(SystemExit, match="daily limit"):
+        prov.extract_gemini("prompt", "gemini-test", client=fake)
+    assert calls["n"] == 1            # no pointless retries against a daily limit

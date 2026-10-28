@@ -44,7 +44,14 @@ def extract_gemini(prompt: str, model: str, client=None) -> Extraction:
             response = client.models.generate_content(model=model, contents=prompt, config=config)
             break
         except (errors.ClientError, errors.ServerError) as err:
-            # 429 = rate limited; 500/503 = Google's servers temporarily overloaded.
+            # A DAILY quota won't clear by waiting a minute: stop with a clear message.
+            # Finished companies are cached, so the next run resumes where this one stopped.
+            if getattr(err, "code", None) == 429 and "PerDay" in str(err):
+                raise SystemExit(
+                    "\nGemini free-tier daily limit reached. Progress is saved; "
+                    "run the same command again after the quota resets (usually midnight Pacific)."
+                ) from None
+            # 429 = per-minute rate limit; 500/503 = Google's servers temporarily overloaded.
             # Both are temporary: wait longer each time and try again.
             temporary = getattr(err, "code", None) in (429, 500, 503)
             if temporary and attempt < MAX_RETRIES - 1:
