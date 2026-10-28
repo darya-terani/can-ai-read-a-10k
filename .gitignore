@@ -1,0 +1,9 @@
+# Full 10-K text is downloaded by tenkbench.dataset (about 18 MB)
+data/filings/
+raw/
+
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+.env
